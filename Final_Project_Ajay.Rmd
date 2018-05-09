@@ -1,0 +1,452 @@
+
+##NAUKUDKAR, AJAY DA 5030-01 DATA MINING/MACHINE LEARNING SPRING 18  FINAL PROJECT ##
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+## Project Overview: Diabetes is one of the most common and costly of all chronic diseases. According to the Centers for Disease Control and Prevention(CDC) for the year 2017, 30.3 million people with diabetes (9.4% of the US population) including 23.1 million people who are diagnosed and 7.2 million people (23.8%) undiagnosed. Diabetes is the sixth leading cause of death in the United States and is a major risk factor for other diseases such as cardiovascular disease, stroke, blindness, and end-stage renal failure.
+
+
+##CRISP-DM: Phase 1
+## Business understanding: The main objective of the project is to develop a prediction model that will help identify patients with diabetes and those who don't based on diagnostic measurements available in the dataset.
+```
+
+```{r}
+##CRISP-DM: Phase 2: 
+##Data Understanding: This stage includes data loading.
+## Using the dataset obtained from the Kaggle dataset repository hosted by UCI (originally from the National Institute of Diabetes and Digestive and Kidney Diseases) with 768 records in it.
+##Source: https://www.kaggle.com/uciml/pima-indians-diabetes-database
+## Load data: Data acquisition
+
+data_diabetes <- read.csv(file="C:/Users/Ajay Naukudkar/Desktop/Ajay_Final_Project/diabetes.csv",header = TRUE)
+head(data_diabetes)
+tail(data_diabetes)
+str(data_diabetes)
+summary(data_diabetes)
+
+
+## There are 768 observations with 9 features. All features are numeric in nature.There are some missing values in the form of zero which are replaced by NA and then imputed further.
+```
+
+
+
+```{r}
+##CRISP-DM: Phase 2: Data Exploration
+##missing values are observed and replaced by NA
+##mice(multivariate imputation by chained equations)
+##install.packages("mice")
+library("mice")
+## missing values are replaced by 'NA' for the columns Glucose,BP,ST,Insulin,BMI
+data_diabetes[,2:6][data_diabetes[, 2:6] == 0] <- NA
+head(data_diabetes)
+
+## a function that computes the percentage of missing values
+missingdata_diabetes <- function(x){sum(is.na(x))/length(x)*100}
+#percentage of missing data column and row wise is explained below
+apply(data_diabetes,2,missingdata_diabetes)
+## It is observed that Insulin and skin thickness have more number of missing values
+
+#visual representation of above pattern can be obtained using the VIM(Visulaization and imputation of missing values package)
+##install.packages("openxlsx", dependencies=TRUE)
+##install.packages("VIM")
+library(VIM)
+## exploratory data plots using aggregate function
+
+plot <- aggr(data_diabetes, col=c('navyblue','green'), numbers=TRUE, sortVars=TRUE, labels=names(data_diabetes),cex.axis=0.7, gap=1, ylab=c("missing data Histogram","Pattern"))
+
+## The graph plot represents the missing value proportion for each combination of the attributes. Green depicts missing values whereas blue depicts valid data. Thus missing values are observed for Glucose,BP,ST,Insulin,BMI and thus imputed.
+```
+
+```{r}
+##CRISP-DM: Phase 3: Data Cleaning
+## imputing the missing values 'NA'
+## removing the output column
+methods(mice)
+## norm.predit method is used for giving good imputation of missing data
+diabetes_tempData <- mice(data_diabetes[, !names(data_diabetes) %in%
+"Outcome"],m=5,maxit=5,meth='norm.predict',seed=500)
+summary(diabetes_tempData)
+
+## m=5 denotes 5 multiple imputations
+## Glucose column is imputed with 5 missing values,BP with 35,SkinThickness with 227,Insulin with 374,BMI with 11
+## complete function extracts imputed datasets and returns completed dataset
+diabetes_ImputedData <- complete(diabetes_tempData,2)
+head(diabetes_ImputedData)
+## outcome column is added back to the table
+diabetes_ImputedData$Outcome <- data_diabetes$Outcome
+head(diabetes_ImputedData)
+summary(diabetes_ImputedData)
+## finding the variation between the + diabetes and - diabetes in percentages from the given data
+##install.packages("plotrix")
+library("plotrix")
+## prop.table express table entries in fractions
+prop.table(table(data_diabetes$Outcome))
+## 35:65 ratio in percentages observed
+
+## correlation analysis
+##install.packages("corrplot")
+library(corrplot)
+## correlation between the attributes
+correlat <- cor(diabetes_ImputedData[, setdiff(names(diabetes_ImputedData), 'Outcome')])
+correlat
+corrplot(correlat)
+
+## The below graph represents correlation across all attributes
+## SkinThickness~BMI and Insulin~Glucose were found to have a strong correlation.
+
+## Although Insulin is a predictor variable towards the outcome, since most of its values are imputed it is not a strong predictor, age is not a strong predictor and glucose is the strongest contributor for our analysis.
+
+## evaluating data quality by checking distribution of the rest of the variables and outliers 
+hist(diabetes_ImputedData$Pregnancies)
+hist(diabetes_ImputedData$Glucose)
+hist(diabetes_ImputedData$SkinThickness)
+hist(diabetes_ImputedData$BMI)
+## below graph represents histogram for our four predictor variables before transformation i.e Pregnancies, glucose, SkinThickness and BMI respy.
+
+## outlier detection focusses on this four strong predictor variables
+boxplot(diabetes_ImputedData$Pregnancies,main="Pregnancies")
+boxplot(diabetes_ImputedData$Glucose,main="Glucose")
+boxplot(diabetes_ImputedData$SkinThickness,main="SkinThickness")
+boxplot(diabetes_ImputedData$BMI,main="BMI")
+
+## we found that glucose doesnt have any outliers
+
+```
+
+
+```{r}
+##CRISP-DM: Phase 3: Data cleaning and shaping
+## applying zscore transformation for normalization/standardization
+
+normalize <- function(x) {
+    return ((x - mean(x)) / (sd(x)))
+  }
+## normalizing on all of the features excluding the outcome column
+diabetes_ImputedData_normalize <- as.data.frame(lapply(diabetes_ImputedData[1:8], normalize))
+summary(diabetes_ImputedData_normalize)
+head(diabetes_ImputedData_normalize)
+## now taking the absolute value of the normalized data
+diabetes_ImputedData_normalize <- abs(diabetes_ImputedData_normalize)
+head(diabetes_ImputedData_normalize)
+## outcome column is added back to the table
+diabetes_ImputedData_normalize$Outcome <- data_diabetes$Outcome
+head(diabetes_ImputedData_normalize)
+tail(diabetes_ImputedData_normalize)
+
+  ## Ref:http://datapigtechnologies.com/blog/index.php/highlighting-outliers-in-your-data-with-the-tukey-method/
+  ## detecting outliers first 
+  detect_outliers <- function(df,m){
+  library(dplyr)
+  ## used for working with data frame like objects
+  ## quantile function used to calculate the first and the the third quantile.
+   
+  ## IQR used for computing the inter-quartile range which is the difference between the upper and the lower quantiles
+  n <- IQR(m)
+  ## calculating the first quantile
+  o <- quantile(m,.25)
+  ## calculating the second quantile
+  p <- quantile(m,.75)
+  ## filter function used to find the rows where conditions are
+ ## values below (Quantile 1) - (1.5 ? IQR)
+  low <- filter(df,m < (o - (1.5*n)))
+ ## values below (Quartile 3) + (1.5 ? IQR)
+  high <- filter(df,m > (p + (1.5*n)))
+  
+  return(rbind.data.frame(low,high))
+  }
+  
+## calling the detect outlier function
+outliers_bmi<-detect_outliers(diabetes_ImputedData_normalize, diabetes_ImputedData_normalize$BMI)
+summary(outliers_bmi)
+## values betweem 2.378 to 5.039 are considered as outliers
+
+outliers_glucose<-detect_outliers(diabetes_ImputedData_normalize,diabetes_ImputedData_normalize$Glucose)
+summary(outliers_glucose)
+## values between 2.342 to 2.548 are considered as outliers
+
+outliers_pregnancies<-detect_outliers(diabetes_ImputedData_normalize,diabetes_ImputedData_normalize$Pregnancies)
+summary(outliers_pregnancies)
+## values between 2.42 to 3.904 are considered as outliers
+
+outliers_dpt<-detect_outliers(diabetes_ImputedData_normalize,diabetes_ImputedData_normalize$DiabetesPedigreeFunction)
+summary(outliers_dpt)
+## values between 1.76 to 5.88 are considered as outliers
+
+outliers_age<-detect_outliers(diabetes_ImputedData_normalize, diabetes_ImputedData_normalize$Age)
+summary(outliers_age)
+## values between 1.85 to 4.061 are considered as outliers
+
+outliers_st<-detect_outliers(diabetes_ImputedData_normalize,diabetes_ImputedData_normalize$SkinThickness)
+summary(outliers_st)
+## values between 2.42 to 7.346 are considered as outliers
+
+outliers_insulin<-detect_outliers(diabetes_ImputedData_normalize,diabetes_ImputedData_normalize$Insulin)
+summary(outliers_insulin)
+## values between 2.01 to 7.07 are considered as outliers
+
+outliers_bp<-detect_outliers(diabetes_ImputedData_normalize,diabetes_ImputedData_normalize$BloodPressure)
+summary(outliers_bp)
+## values between 2.275 to 4.086 are considered as outlier
+
+head(diabetes_ImputedData_normalize)
+## Ref:https://datascienceplus.com/identify-describe-plot-and-removing-the-outliers-from-the-dataset/
+## using command boxplot.stats()$out to identify the outliers for the respective features with using %in% operator to know the indexes of the outliers on four strong predictor variables
+(a1 <- which(diabetes_ImputedData_normalize$BMI %in% boxplot.stats(diabetes_ImputedData_normalize$BMI)$out))
+(a2 <- which(diabetes_ImputedData_normalize$Glucose %in%boxplot.stats(diabetes_ImputedData_normalize$Glucose)$out))
+(a3 <- which(diabetes_ImputedData_normalize$Pregnancies %in% boxplot.stats(diabetes_ImputedData_normalize$Pregnancies)$out))
+(a4 <- which(diabetes_ImputedData_normalize$SkinThickness %in% boxplot.stats(diabetes_ImputedData_normalize$SkinThickness)$out))
+
+## Reduce takes a union function and a list of the outliers to combine all the indexes of the ouliers where repetitive indexes are ignored
+total_outliers <- Reduce(union,list(a1,a2,a3,a4))
+total_outliers
+
+## Removing outlier from the four strong predictor variables before transformation i.e Pregnancies, glucose, SkinThickness and BMI respy.
+
+remove_outlier <- function(data,indexOftotaloutliers){
+  for (x in 1:nrow(indexOftotaloutliers)){
+    i = indexOftotaloutliers[x,]
+    data <- data[-c(i), ]
+  }
+  return(data)
+}
+## calling the remove_outlier function by passing all the indexes of the outliers above to the remove outlier function to remove the outliers
+transform_data<-remove_outlier(diabetes_ImputedData_normalize, as.data.frame(total_outliers))
+
+## after removing outliers and transformation 713 records observed thus eliminating 55  records
+nrow(transform_data)
+head(transform_data)
+tail(transform_data)
+
+write.csv(transform_data, file = "C:/Users/Ajay Naukudkar/Desktop/Ajay_Final_Project/transform_data.csv")
+
+```
+
+
+
+```{r}
+##CRISP-DM: Phase 3: Data cleaning and shaping
+
+## Feature engineering: deriving new features for glucose ie.patients having prediabetic glucose and the others having diabetic glucose.
+## Evidence: https://www.mayoclinic.org/diseases-conditions/prediabetes/diagnosis-treatment/drc-20355284 for range levels with below data
+## A blood glucose level less than 140 mg/dl(equivalent to 0.6026 after checking the row index in transformed data ) is considered normal.
+## A blood glucose level between 140(equivalent to 0.6026 in transformed data) to 199(equivalent to 2.5389 in transformed dataset) is considered prediabetes.
+## A blood sugar level greater than 199(2.5389) is considered as diabetes(Type2).
+
+transformed_data <- transform_data
+
+transformed_data$GlucosePrediabetic = ifelse(transformed_data$Glucose > 0.6026 & transformed_data$Glucose <= 2.5389, 1, 0)
+transformed_data$GlucoseDiabetic = ifelse(transformed_data$Glucose > 2.5389, 1, 0)
+
+## Feature Engineering: dummy codes using nested ifelse here (35 corresponds to 0.9999 from transformed data and 60 equivalent to 2.2753 )
+
+transformed_data$AgeDummy <- ifelse(transformed_data$Age < 0.9999, "Low", 
+                                     ifelse((transformed_data$Age >= 0.9999 & 
+                                               transformed_data$Age <= 2.2753),"Medium", "High" ))
+## dataset containing extra derived columns and dummy variables
+head(transformed_data)
+## original transformed data
+head(transform_data)
+
+```
+
+```{r}
+##CRISP-DM: Phase 4: Model construction and evaluation
+## Creating training and validation subsets
+## splitting the dataset in training and testing 70:30 using the caret package
+library(caret)
+set.seed(120)
+train_data <- createDataPartition(transform_data$Outcome, p=0.70, list = FALSE)
+
+data_train <- transform_data[train_data,]
+data_test <-transform_data[-train_data,]
+
+nrow(data_train)
+nrow(data_test)
+
+##so total of 713 transformed records observed with 500 in training and 213 in testing
+```
+
+```{r}
+##CRISP-DM: Phase 4: Model construction and evaluation
+## Construction of K-means clustering model(unsupervised model)
+## using normalized numeric data with excluding outcome column
+
+pred <- transform_data[,1:(dim(transform_data)[2]-1)] #Remove OUTCOME column
+head(pred)
+summary(pred)
+
+## principal component analysis
+## Ref:https://stats.stackexchange.com/questions/222/what-are-principal-component-scores?utm_medium=organic&utm_source=google_rich_qa&utm_campaign=google_rich_qa
+## It is used to reduce a large set of variables to a small set that still contains most of the info from the largeset
+
+## princomp performs a principal component analysis on a given numeric data matrix 
+pca_diab <- princomp(pred, cor=T)  #cor is correlation matrix
+pca_diab
+## all the standard deviations for the components are observed
+## determining the principal component scores
+pca.comp <- pca_diab$scores
+## computing principal component 1 scores
+pca.comp1 <- -1*pca.comp[,1]
+## computing principal component 2 scores
+pca.comp2 <- -1*pca.comp[,2]
+pca_compbind <- cbind(pca.comp1, pca.comp2)
+## performs k-means clustering with 13 clusters assumed using kmeans function and performing on the above numeric data matrix
+clust <- kmeans(pca_compbind,13)
+clust
+## K-means clustering with 13 clusters of sizes 97, 40, 44, 78, 76, 10, 6, 78, 56, 61, 39, 69, 59
+## Within cluster sum of squares by cluster:
+ ## [1] 14.89406 38.87661 17.42001 12.11338 13.29481 45.35459 23.44498 16.44669 22.62078 13.20772 19.17336
+##[12] 14.09948 14.31519
+ ## (between_SS / total_SS =  87.8 %) giving a good fit result with good clusters formed below
+## taking two principal components as new feature variables and performing k-means
+plot(pca.comp1, pca.comp2,col=clust$cluster, main='kmeans Clustering analysis')
+library(cluster)
+## fpc package for clustering validation
+library(fpc)
+plotcluster(transform_data,clust$cluster)
+points(clust$centers, pch=16)
+## different clusters in different colors observed where solid black are the centers of clusters
+
+
+```
+
+```{r}
+## Logistic Regression using the most common 10-fold cross validation
+set.seed(1234)
+library(caret)
+## converting the numeric outcome variable to a factor for training and test data for prediction as the predictor variable should always be a factor for performing logistic regression  
+data_train$Outcome <- as.factor(data_train$Outcome)
+levels(data_train$Outcome) <- c("Yes", "No")
+data_test$Outcome <- as.factor(data_test$Outcome)
+levels(data_test$Outcome) <- c("Yes", "No")
+str(data_train)
+str(data_test)
+## 10-fold cross validation
+ctrl1 <- trainControl(method = "cv", number = 10)
+glm_mod_fit <- train(Outcome~., data=data_train, trControl=ctrl1, method="glm")
+pred <- predict(glm_mod_fit,data_test)
+pred
+matrix_conf <- confusionMatrix(data = pred, data_test$Outcome)
+matrix_conf
+## Accuracy is 71.36% using logistic regression out of those 213 cases classifier predicted  153  patients with diabetes and 60 patients those who doesnt have diabetes but in reality 184 patients in the sample have diabetes and 29 doesnt thus the accuracy is decreased.
+## There are 138 true positive cases in which we predicted yes and they do have a disease.There are 14 true negative cases in which we predicted no and they dont have the disease. There are 15 false positive cases in which we predicted yes but they dont have actually the disease and lastly 46 false negative cases in which we predicted no, but they actually do have a disease.
+
+## calculating area under ROC curve (AUC)
+## package to display and analyze ROC curves
+## it summarizes the models performance by evaluating trade-offs between true positive rate and false positive rate
+##install.packages('pROC')
+library(pROC)
+pred_prob <- predict(glm_mod_fit,data_test, type="prob")
+## roc method builds a roc curve
+roc_glm_mod_fit <- roc(data_test$Outcome,pred_prob$Yes )
+roc_glm_mod_fit
+## Area under the curve : 0.6092 so not good
+
+
+```
+
+
+```{r}
+## KNN model 
+ctrl1 <- trainControl(method = "cv", number = 10)
+knn_model <- train(Outcome~.,data_train,method="knn",preProcess = c("center", "scale"),tuneLength = 10,trControl=ctrl1)
+knn_predict <- predict(knn_model,data_test)
+matrix_conf_knn <- confusionMatrix(knn_predict, data_test$Outcome, positive="Yes")
+matrix_conf_knn
+
+## Accuracy is 72.3%
+
+## tuning the model from tune length of 10 to 20
+ctrl1 <- trainControl(method = "cv", number = 10)
+knn_model_tune <- train(Outcome~.,data_train,method="knn",preProcess = c("center", "scale"),tuneLength = 20,trControl=ctrl1)
+knn_predict_tune <- predict(knn_model_tune,data_test)
+matrix_conf_knn_tune <- confusionMatrix(knn_predict_tune, data_test$Outcome, positive="Yes")
+matrix_conf_knn_tune
+
+## Accuracy is increased to 73.71% after increasing the tune length from 10 to 20
+
+```
+
+```{r}
+## implementing Naive Bayes algorithm
+
+library(e1071)
+#install.packages("rminer")
+library(rminer)
+## training the Naive bayes model on the train data set
+nb_model <- train(Outcome~., data=data_train, trControl=ctrl1, method="nb")
+### predictions
+predictions_nb <- predict(nb_model, data_test)
+nb_model_pre <- cbind(data_test,predictions_nb)
+### summarize
+confusionMatrix_nb <- confusionMatrix(nb_model_pre$predictions_nb, nb_model_pre$Outcome)
+confusionMatrix_nb
+## Accuracy is 75.59% using Naive Bayes model
+
+```
+
+```{r}
+## comparison of model accuracy with dotplot
+## resamples method is used analyze and visualize resampling results from common dataset
+accuracy <- resamples(list(LR= glm_mod_fit, KNN= knn_model_tune, NaiveBayes= nb_model))
+### checking the accuracy for 3 different supervised models
+summary(accuracy)
+## plotting the accuracy for 3 different supervised models
+dotplot(accuracy)
+
+## Accuracy: Logistic Regression: 71.36%   KNN: 73.71%  Naive Bayes: 75.59% Thus Naive Bayes is a good classifier for medical diagnosis and for solving complex models even when the datset is not too large.
+```
+
+
+```{r}
+## Ensembling the model
+
+library(caret)
+library(caretEnsemble)
+
+model_list <- c('glm', 'knn', 'nb')
+
+set.seed(10)
+## careltList builds a list of train objects which are meant for ensembling
+models <- caretList(Outcome~., data=data_train, trControl=ctrl1, methodList=model_list)
+
+model_result <- resamples(models)
+summary(model_result)
+dotplot(model_result)
+
+## by looking at the accuracy values we can say that naive bayes model is best among the models with ~ 76% accuracy for the given dataset
+```
+
+
+```{r}
+##CRISP-DM: Phase 5: Model deployment
+## Tried with deploying the app on shinyapps.io but received following error by creating two files ui.R which will take all the diagnostic measurements as input when entered by the user and server.R where it will check the risk of diabetes by using transformed data as my training data to train the knn model and provide me with the prediction output and also will check the most important features for deploying my KNN model for predicting diabetes based on the measurements but couldn't move forward in the deployment process when hosting it on shinyapps.io but was a good learning experience overall.
+##https://ajay0809.shinyapps.io/Ajay_Final/
+##Initially faced with the httpuv package error but tried to resolve it and then later observed the below error:
+##ERROR: An error has occurred. Check your logs or contact the app author for clarification.
+```
+
+```{r}
+## Key lessons learned:
+## If we try to get any future cardiac history of patients or better insulin records as most of them were missing in this dataset, we can try to implement a much better model.
+```
+
+
+
+```{r}
+##References used:
+##https://datascienceplus.com/identify-describe-plot-and-removing-the-outliers-from-the-dataset/
+##https://stackoverflow.com/questions/28545688/understand-the-reduce-function
+##http://datapigtechnologies.com/blog/index.php/highlighting-outliers-in-your-data-with-the-tukey-method/
+##https://stats.stackexchange.com/questions/222/what-are-principal-component-scores?utm_medium=organic&utm_source=google_rich_qa&utm_campaign=google_rich_qa
+##https://www.analyticsvidhya.com/blog/2015/11/beginners-guide-on-logistic-regression-in-r/
+##https://www.analyticsvidhya.com/blog/2016/11/an-introduction-to-clustering-and-different-methods-of-clustering/
+##https://machinelearningmastery.com/compare-the-performance-of-machine-learning-algorithms-in-r/
+##https://www.quora.com/In-what-real-world-applications-is-Naive-Bayes-classifier-used
+##https://www.analyticsvidhya.com/blog/2016/10/creating-interactive-data-visualization-using-shiny-app-in-r-with-examples/
+##https://www.mayoclinic.org/diseases-conditions/prediabetes/diagnosis-treatment/drc-20355284
+  
+```
+
